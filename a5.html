@@ -1,0 +1,853 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>俄羅斯方塊</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #101522;
+  color: #eef3ff;
+  font-family: Arial, sans-serif;
+}
+
+.app {
+  width: min(600px, 100%);
+  padding: 16px;
+}
+
+h1 {
+  text-align: center;
+  color: #70e1fd;
+}
+
+.game {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+canvas {
+  display: block;
+  background: #0b1020;
+  border: 1px solid #303b55;
+  border-radius: 6px;
+}
+
+#board {
+  width: 300px;
+  height: 600px;
+}
+
+.side {
+  width: 150px;
+}
+
+.panel {
+  background: #1a2234;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  margin: 8px 0;
+}
+
+.stat span {
+  color: #9ca9c4;
+  font-size: 13px;
+}
+
+.stat strong {
+  display: block;
+  font-size: 23px;
+  margin-top: 4px;
+}
+
+#next {
+  width: 120px;
+  height: 120px;
+  margin: auto;
+}
+
+button {
+  cursor: pointer;
+  padding: 10px;
+  color: white;
+  background: #25314a;
+  border: 1px solid #43516f;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+button:hover {
+  background: #334362;
+}
+
+.buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.buttons button:first-child {
+  grid-column: 1 / -1;
+  background: #157e9b;
+}
+
+.message {
+  text-align: center;
+  color: #70e1fd;
+  margin: 12px 0;
+  min-height: 20px;
+}
+
+.controls {
+  display: none;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.controls button {
+  font-size: 20px;
+}
+
+@media (max-width: 540px) {
+  .game { gap: 8px; }
+  .side { width: 120px; }
+  #board {
+    width: min(300px, calc(100vw - 160px));
+    height: auto;
+  }
+  .controls { display: grid; }
+  .panel { padding: 8px; }
+  .app { padding: 8px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>▦ 俄羅斯方塊</h1>
+
+  <div class="game">
+    <div>
+      <canvas id="board" width="300" height="600"></canvas>
+    </div>
+
+    <div class="side">
+      <div class="panel">
+        <div class="stat">
+          <span>分數 SCORE</span>
+          <strong id="score">0</strong>
+        </div>
+        <div class="stat">
+          <span>最高分 BEST</span>
+          <strong id="best">0</strong>
+        </div>
+        <div class="stat">
+          <span>消除行數</span>
+          <strong id="lines">0</strong>
+        </div>
+        <div class="stat">
+          <span>等級 LEVEL</span>
+          <strong id="level">1</strong>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p>下一個方塊</p>
+        <canvas id="next" width="120" height="120"></canvas>
+      </div>
+
+      <div class="panel buttons">
+        <button id="start">▶ 開始遊戲</button>
+        <button id="pause">Ⅱ 暫停</button>
+        <button id="restart">↻ 重開</button>
+        <button id="sound">🔊 音效開</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="message" id="message">按開始遊戲！</div>
+
+  <div class="controls">
+    <button data-key="left">←</button>
+    <button data-key="rotate">↻</button>
+    <button data-key="right">→</button>
+    <button data-key="down">↓</button>
+    <button data-key="drop" style="grid-column:span 2">⤓ 落下</button>
+    <button data-key="pause" style="grid-column:span 2">Ⅱ 暫停</button>
+  </div>
+
+  <div style="text-align:center;color:#9ca9c4;font-size:13px;margin-top:12px">
+    ← → 移動｜↑ 旋轉｜↓ 加速｜空白鍵落下｜P 暫停｜M 音效
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("board");
+  const ctx = canvas.getContext("2d");
+  const nextCanvas = document.getElementById("next");
+  const nctx = nextCanvas.getContext("2d");
+
+  const COLS = 10;
+  const ROWS = 20;
+  const SIZE = 30;
+
+  const COLORS = {
+    I: "#54e7ef",
+    O: "#ffcf5a",
+    T: "#b58aff",
+    S: "#67e39a",
+    Z: "#ff6e83",
+    J: "#6e9dff",
+    L: "#ff9b5c"
+  };
+
+  const SHAPES = {
+    I: [[1,1,1,1]],
+    O: [[1,1],[1,1]],
+    T: [[0,1,0],[1,1,1]],
+    S: [[0,1,1],[1,1,0]],
+    Z: [[1,1,0],[0,1,1]],
+    J: [[1,0,0],[1,1,1]],
+    L: [[0,0,1],[1,1,1]]
+  };
+
+  let board;
+  let piece;
+  let nextType;
+
+  let score = 0;
+  let lines = 0;
+  let level = 1;
+  let best = 0;
+
+  let running = false;
+  let paused = false;
+  let over = false;
+  let soundOn = true;
+
+  let dropCounter = 0;
+  let lastTime = 0;
+  let audioCtx = null;
+
+  try {
+    best = Number(localStorage.getItem("tetrisBest") || 0);
+  } catch (e) {}
+
+  document.getElementById("best").textContent = best;
+
+  // ===== 內建音效：不需要外部音檔 =====
+
+  function getAudio() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+
+    return audioCtx;
+  }
+
+  function tone(freq, duration = 0.08, type = "square",
+                volume = 0.04, endFreq = null, delay = 0) {
+    if (!soundOn) return;
+
+    const audio = getAudio();
+    if (!audio) return;
+
+    const t = audio.currentTime + delay;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+
+    if (endFreq) {
+      osc.frequency.exponentialRampToValueAtTime(
+        Math.max(1, endFreq), t + duration
+      );
+    }
+
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(
+      0.001, t + duration
+    );
+
+    osc.connect(gain);
+    gain.connect(audio.destination);
+
+    osc.start(t);
+    osc.stop(t + duration);
+  }
+
+  function sfx(name) {
+    if (name === "move") {
+      tone(220, 0.035, "square", 0.018, 260);
+    }
+
+    if (name === "rotate") {
+      tone(420, 0.06, "triangle", 0.035, 650);
+    }
+
+    if (name === "drop") {
+      tone(180, 0.12, "sawtooth", 0.045, 55);
+    }
+
+    if (name === "lock") {
+      tone(140, 0.07, "triangle", 0.025, 90);
+    }
+
+    if (name === "line") {
+      [523, 659, 784, 1047].forEach((f, i) => {
+        tone(f, 0.13, "triangle", 0.045, null, i * 0.055);
+      });
+    }
+
+    if (name === "tetris") {
+      [523, 659, 784, 1047, 1319].forEach((f, i) => {
+        tone(f, 0.19, "triangle", 0.05, null, i * 0.065);
+      });
+    }
+
+    if (name === "gameover") {
+      [392, 330, 262, 196].forEach((f, i) => {
+        tone(f, 0.22, "sawtooth", 0.04, null, i * 0.14);
+      });
+    }
+
+    if (name === "start") {
+      tone(440, 0.08, "triangle", 0.04);
+      tone(660, 0.1, "triangle", 0.04, null, 0.08);
+    }
+
+    if (name === "pause") {
+      tone(330, 0.07, "triangle", 0.03);
+    }
+  }
+
+  // ===== 遊戲邏輯 =====
+
+  function emptyBoard() {
+    return Array.from(
+      { length: ROWS },
+      () => Array(COLS).fill(null)
+    );
+  }
+
+  function randomType() {
+    const types = Object.keys(SHAPES);
+    return types[Math.floor(Math.random() * types.length)];
+  }
+
+  function makePiece(type) {
+    const matrix = SHAPES[type].map(row => row.slice());
+
+    return {
+      type,
+      matrix,
+      x: Math.floor((COLS - matrix[0].length) / 2),
+      y: 0
+    };
+  }
+
+  function reset() {
+    board = emptyBoard();
+    score = 0;
+    lines = 0;
+    level = 1;
+    dropCounter = 0;
+
+    running = false;
+    paused = false;
+    over = false;
+
+    nextType = randomType();
+    spawn();
+
+    updateStats();
+    setMessage("準備好了嗎？按開始遊戲！");
+    document.getElementById("start").textContent = "▶ 開始遊戲";
+    document.getElementById("pause").textContent = "Ⅱ 暫停";
+
+    draw();
+  }
+
+  function spawn() {
+    piece = makePiece(nextType);
+    nextType = randomType();
+    drawNext();
+
+    if (collides(piece, 0, 0, piece.matrix)) {
+      running = false;
+      over = true;
+      setMessage("遊戲結束！按重開再挑戰。");
+      sfx("gameover");
+    }
+  }
+
+  function collides(p, dx, dy, matrix) {
+    for (let y = 0; y < matrix.length; y++) {
+      for (let x = 0; x < matrix[y].length; x++) {
+        if (!matrix[y][x]) continue;
+
+        const nx = p.x + x + dx;
+        const ny = p.y + y + dy;
+
+        if (nx < 0 || nx >= COLS || ny >= ROWS) {
+          return true;
+        }
+
+        if (ny >= 0 && board[ny][nx]) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function merge() {
+    piece.matrix.forEach((row, y) => {
+      row.forEach((value, x) => {
+        const by = piece.y + y;
+        const bx = piece.x + x;
+
+        if (value && by >= 0) {
+          board[by][bx] = piece.type;
+        }
+      });
+    });
+
+    let cleared = 0;
+
+    for (let y = ROWS - 1; y >= 0;) {
+      if (board[y].every(Boolean)) {
+        board.splice(y, 1);
+        board.unshift(Array(COLS).fill(null));
+        cleared++;
+      } else {
+        y--;
+      }
+    }
+
+    if (cleared > 0) {
+      lines += cleared;
+
+      const points = [0, 100, 300, 500, 800];
+      score += (points[cleared] || cleared * 200) * level;
+
+      level = Math.floor(lines / 10) + 1;
+
+      sfx(cleared === 4 ? "tetris" : "line");
+
+      setMessage(
+        cleared === 4
+          ? "TETRIS！一次消除四行！"
+          : `漂亮！消除 ${cleared} 行！`
+      );
+    } else {
+      sfx("lock");
+    }
+
+    if (score > best) {
+      best = score;
+
+      try {
+        localStorage.setItem("tetrisBest", String(best));
+      } catch (e) {}
+    }
+
+    updateStats();
+    spawn();
+  }
+
+  function move(dx) {
+    if (!running || paused || over) return;
+
+    if (!collides(piece, dx, 0, piece.matrix)) {
+      piece.x += dx;
+      sfx("move");
+      draw();
+    }
+  }
+
+  function rotate() {
+    if (!running || paused || over) return;
+
+    const matrix = piece.matrix;
+
+    const rotated = matrix[0].map((_, i) =>
+      matrix.map(row => row[i]).reverse()
+    );
+
+    // 旋轉時允許微調位置，避免卡在牆邊
+    for (const kick of [0, -1, 1, -2, 2]) {
+      if (!collides(piece, kick, 0, rotated)) {
+        piece.x += kick;
+        piece.matrix = rotated;
+
+        sfx("rotate");
+        draw();
+        return;
+      }
+    }
+  }
+
+  function softDrop() {
+    if (!running || paused || over) return;
+
+    if (!collides(piece, 0, 1, piece.matrix)) {
+      piece.y++;
+      score++;
+      updateStats();
+    } else {
+      merge();
+    }
+
+    dropCounter = 0;
+    draw();
+  }
+
+  function hardDrop() {
+    if (!running || paused || over) return;
+
+    let distance = 0;
+
+    while (!collides(piece, 0, 1, piece.matrix)) {
+      piece.y++;
+      distance++;
+    }
+
+    score += distance * 2;
+
+    sfx("drop");
+    merge();
+    draw();
+  }
+
+  function ghostY() {
+    let y = piece.y;
+
+    while (!collides(
+      { ...piece, y }, 0, 1, piece.matrix
+    )) {
+      y++;
+    }
+
+    return y;
+  }
+
+  // ===== 繪圖 =====
+
+  function drawCell(context, x, y, color, size, alpha = 1) {
+    context.globalAlpha = alpha;
+    context.fillStyle = color;
+
+    context.fillRect(
+      x * size + 1,
+      y * size + 1,
+      size - 2,
+      size - 2
+    );
+
+    context.fillStyle = "#ffffff30";
+    context.fillRect(
+      x * size + 3,
+      y * size + 3,
+      size - 6,
+      3
+    );
+
+    context.strokeStyle = "#ffffff32";
+    context.strokeRect(
+      x * size + 1.5,
+      y * size + 1.5,
+      size - 3,
+      size - 3
+    );
+
+    context.globalAlpha = 1;
+  }
+
+  function drawMatrix(context, matrix, ox, oy, color, size, alpha = 1) {
+    matrix.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (value) {
+          drawCell(context, ox + x, oy + y, color, size, alpha);
+        }
+      });
+    });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#0b1020";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 背景格線
+    ctx.strokeStyle = "#ffffff0b";
+
+    for (let x = 0; x <= COLS; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * SIZE, 0);
+      ctx.lineTo(x * SIZE, canvas.height);
+      ctx.stroke();
+    }
+
+    for (let y = 0; y <= ROWS; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * SIZE);
+      ctx.lineTo(canvas.width, y * SIZE);
+      ctx.stroke();
+    }
+
+    // 已固定的方塊
+    board.forEach((row, y) => {
+      row.forEach((type, x) => {
+        if (type) {
+          drawCell(ctx, x, y, COLORS[type], SIZE);
+        }
+      });
+    });
+
+    // 當前方塊與落點預覽
+    if (piece) {
+      if (running && !over) {
+        drawMatrix(
+          ctx, piece.matrix,
+          piece.x, ghostY(),
+          COLORS[piece.type], SIZE, 0.22
+        );
+      }
+
+      drawMatrix(
+        ctx, piece.matrix,
+        piece.x, piece.y,
+        COLORS[piece.type], SIZE
+      );
+    }
+
+    // 開始、暫停及結束畫面
+    if (!running) {
+      ctx.fillStyle = "#080d18a8";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#eef3ff";
+      ctx.font = "bold 22px Arial";
+
+      ctx.fillText(
+        over ? "遊戲結束" : paused ? "已暫停" : "準備開始",
+        canvas.width / 2,
+        canvas.height / 2 - 4
+      );
+
+      ctx.fillStyle = "#9ca9c4";
+      ctx.font = "13px Arial";
+
+      ctx.fillText(
+        over ? "按重開再玩一次" :
+        paused ? "按繼續回到遊戲" : "按開始挑戰最高分",
+        canvas.width / 2,
+        canvas.height / 2 + 24
+      );
+    }
+  }
+
+  function drawNext() {
+    nctx.clearRect(0, 0, 120, 120);
+    nctx.fillStyle = "#101727";
+    nctx.fillRect(0, 0, 120, 120);
+
+    const matrix = SHAPES[nextType];
+    const size = 24;
+
+    const ox = (120 - matrix[0].length * size) / 2 / size;
+    const oy = (120 - matrix.length * size) / 2 / size;
+
+    drawMatrix(
+      nctx, matrix, ox, oy,
+      COLORS[nextType], size
+    );
+  }
+
+  function updateStats() {
+    document.getElementById("score").textContent = score;
+    document.getElementById("best").textContent = best;
+    document.getElementById("lines").textContent = lines;
+    document.getElementById("level").textContent = level;
+  }
+
+  function setMessage(message) {
+    document.getElementById("message").textContent = message;
+  }
+
+  // ===== 開始與暫停 =====
+
+  function start() {
+    getAudio();
+
+    if (over) reset();
+
+    if (!running) {
+      running = true;
+      paused = false;
+
+      document.getElementById("start").textContent = "▶ 遊戲進行中";
+      document.getElementById("pause").textContent = "Ⅱ 暫停";
+
+      setMessage("加油！把方塊排滿一整行。");
+      sfx("start");
+      draw();
+    }
+  }
+
+  function togglePause() {
+    if (over) return;
+
+    if (!running && !paused) {
+      start();
+      return;
+    }
+
+    paused = !paused;
+    running = !paused;
+
+    document.getElementById("pause").textContent =
+      paused ? "▶ 繼續" : "Ⅱ 暫停";
+
+    document.getElementById("start").textContent =
+      paused ? "▶ 繼續遊戲" : "▶ 遊戲進行中";
+
+    setMessage(paused ? "休息一下，按繼續回到遊戲。" : "繼續挑戰！");
+
+    sfx("pause");
+    draw();
+  }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+
+    document.getElementById("sound").textContent =
+      soundOn ? "🔊 音效開" : "🔇 音效關";
+
+    if (soundOn) {
+      getAudio();
+      sfx("start");
+    }
+  }
+
+  // ===== 遊戲更新迴圈 =====
+
+  function update(time = 0) {
+    const delta = time - lastTime;
+    lastTime = time;
+
+    if (running && !paused && !over) {
+      dropCounter += delta;
+
+      const interval = Math.max(90, 800 - (level - 1) * 65);
+
+      if (dropCounter > interval) {
+        if (!collides(piece, 0, 1, piece.matrix)) {
+          piece.y++;
+        } else {
+          merge();
+        }
+
+        dropCounter = 0;
+      }
+
+      draw();
+    }
+
+    requestAnimationFrame(update);
+  }
+
+  // ===== 鍵盤控制 =====
+
+  document.addEventListener("keydown", event => {
+    const keys = [
+      "ArrowLeft", "ArrowRight", "ArrowDown",
+      "ArrowUp", " ", "Spacebar"
+    ];
+
+    if (keys.includes(event.key)) {
+      event.preventDefault();
+    }
+
+    if (event.key === "ArrowLeft") move(-1);
+    else if (event.key === "ArrowRight") move(1);
+    else if (event.key === "ArrowDown") softDrop();
+    else if (
+      event.key === "ArrowUp" ||
+      event.key === "x" ||
+      event.key === "X"
+    ) rotate();
+    else if (
+      event.key === " " ||
+      event.code === "Space"
+    ) hardDrop();
+    else if (event.key === "p" || event.key === "P") {
+      togglePause();
+    }
+    else if (event.key === "m" || event.key === "M") {
+      toggleSound();
+    }
+    else if (event.key === "Enter" && !running) {
+      start();
+    }
+  });
+
+  // ===== 按鈕與手機觸控 =====
+
+  document.getElementById("start").addEventListener("click", start);
+  document.getElementById("pause").addEventListener("click", togglePause);
+
+  document.getElementById("restart").addEventListener("click", () => {
+    reset();
+    getAudio();
+    sfx("start");
+  });
+
+  document.getElementById("sound").addEventListener("click", toggleSound);
+
+  document.querySelectorAll("[data-key]").forEach(button => {
+    button.addEventListener("click", () => {
+      getAudio();
+
+      const action = button.dataset.key;
+
+      if (action === "left") move(-1);
+      if (action === "right") move(1);
+      if (action === "rotate") rotate();
+      if (action === "down") softDrop();
+      if (action === "drop") hardDrop();
+      if (action === "pause") togglePause();
+    });
+  });
+
+  reset();
+  requestAnimationFrame(update);
+})();
+</script>
+</body>
+</html>
